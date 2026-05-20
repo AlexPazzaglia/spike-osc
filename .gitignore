@@ -12,5 +12,6 @@
 *.tar.gz
 *.pyc
 
+__pycache__/
 results/
 results_*

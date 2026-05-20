@@ -83,17 +83,7 @@ To change the displayed trace window:
 python plot_results.py --data results_wide/sweep_data.npz --example-window-s 2.0
 ```
 
-## Keeping logs inside result folders
-
-No script intentionally writes log files to the package root. Recommended command-line logging should redirect output into the selected results directory:
-
-```bash
-python sweep_arnold.py --out results_wide --delta-f-max-Hz 2.7 --n-delta 81 --n-g 50 > results_wide/run.log 2>&1
-python plot_results.py --data results_wide/sweep_data.npz >> results_wide/run.log 2>&1
-python summarize_results.py --data results_wide/sweep_data.npz >> results_wide/run.log 2>&1
-```
-
-## Scientific methods description
+## Methods description
 
 ### Network architecture
 
