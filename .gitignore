@@ -1,0 +1,16 @@
+*.log
+*.aux
+*.out
+*.toc
+*.csv
+*.dat
+*.pdf
+*.png
+*.jpg
+*.svg
+*.zip
+*.tar.gz
+*.pyc
+
+results/
+results_*
