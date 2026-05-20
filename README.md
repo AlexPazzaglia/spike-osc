@@ -7,15 +7,6 @@ This package simulates two coupled spiking half-center oscillators and maps thei
 
 The output is an empirical synchronization regime map with an Arnold-tongue-like 1:1 locking region. The system is not reduced to a closed-form phase-oscillator model; therefore drift, n:m locking, irregular activity, asymmetric dominance, and loss of valid oscillation are explicitly tracked rather than hidden.
 
-## Version 4 changes
-
-This version adds four publication-oriented improvements:
-
-- Representative traces now display a short default window of 2 s, so individual spikes and alternation are visible. The simulation itself still uses the full duration saved in the sweep file; only the displayed interval is cropped.
-- Log files are written inside the relevant results directory. The smoke-test log is saved as `smoke_results/run_smoke_tests.log`. The package root is kept free of generated logs.
-- `plot_results.py` now produces a network/methods schematic: `network_architecture_equations.png/.pdf`. It shows the four-neuron architecture, fixed intra-segment inhibition, swept inter-segment inhibition, the neuron/synapse equations, and the parameters varied in the sweep.
-- The README now contains a methods-level description that can be adapted later for a scientific publication.
-
 ## Files
 
 - `cpg_sim.py` — simulator for the four-neuron adaptive integrate-and-fire CPG.
