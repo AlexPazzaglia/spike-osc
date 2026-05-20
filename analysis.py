@@ -18,6 +18,19 @@ MIN_BALANCE = 0.35        # lower ratio of A/B burst counts
 MIN_CYCLES = 4
 
 
+def _linear_slope(x: np.ndarray, y: np.ndarray) -> float:
+    """Least-squares slope for y ~ a*x+b without calling np.polyfit."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if len(x) < 2:
+        return np.nan
+    xc = x - np.mean(x)
+    denom = float(np.dot(xc, xc))
+    if denom <= 0:
+        return np.nan
+    return float(np.dot(xc, y - np.mean(y)) / denom)
+
+
 def _filter_spikes(spikes: np.ndarray, t_start: float) -> np.ndarray:
     spikes = np.asarray(spikes, dtype=float)
     return spikes[spikes >= t_start]
@@ -34,14 +47,19 @@ def _cv(x: np.ndarray) -> float:
 
 
 def _alternation_fraction(ref: np.ndarray, other: np.ndarray) -> float:
-    """Fraction of ref intervals containing at least one other burst."""
+    """Fraction of ref intervals containing at least one other burst.
+
+    Implemented with ``searchsorted`` rather than a Python loop over intervals.
+    Some invalid high-coupling/high-frequency regimes generate many single-spike
+    bursts, and the naive O(N*M) implementation can become the bottleneck.
+    """
+    ref = np.asarray(ref, dtype=float)
+    other = np.asarray(other, dtype=float)
     if len(ref) < 2 or len(other) == 0:
         return 0.0
-    count = 0
-    for i in range(len(ref) - 1):
-        if np.any((other > ref[i]) & (other < ref[i + 1])):
-            count += 1
-    return count / (len(ref) - 1)
+    left = np.searchsorted(other, ref[:-1], side="right")
+    right = np.searchsorted(other, ref[1:], side="left")
+    return float(np.mean(right > left))
 
 
 def _mean_spikes_per_burst(spikes: np.ndarray, isi_gap: float) -> float:
@@ -179,7 +197,7 @@ def phase_locking_metrics(
     n: int = 1,
     m: int = 1,
 ) -> Dict[str, float]:
-    """Return n:m phase-locking value and residual phase-drift slope."""
+    """Return generalized phase-locking value and residual phase-drift slope."""
     onsets1 = np.asarray(onsets1, dtype=float)
     onsets2 = np.asarray(onsets2, dtype=float)
     if len(onsets1) < 3 or len(onsets2) < 3:
@@ -205,28 +223,51 @@ def phase_locking_metrics(
     # Residual drift from unwrapped generalized phase difference.
     psi_unwrapped = np.unwrap(psi)
     if len(psi_unwrapped) >= 3:
-        slope = float(np.polyfit(t[mask], psi_unwrapped, 1)[0])
+        slope = _linear_slope(t[mask], psi_unwrapped)
     else:
         slope = np.nan
 
     return {"R": R, "dphi": wrapped_mean, "slope": slope, "n_samples": int(mask.sum())}
 
 
-def best_nm_lock(
+def estimate_common_frequency(
     onsets1: np.ndarray,
     onsets2: np.ndarray,
-    max_order: int = 4,
     dt: float = 0.01,
-) -> Dict[str, float]:
-    """Find the strongest low-order n:m phase-locking relation."""
-    best = {"n": 1, "m": 1, "R": np.nan, "dphi": np.nan, "slope": np.nan}
-    for n in range(1, max_order + 1):
-        for m in range(1, max_order + 1):
-            metrics = phase_locking_metrics(onsets1, onsets2, dt=dt, n=n, m=m)
-            R = metrics["R"]
-            if np.isfinite(R) and (not np.isfinite(best["R"]) or R > best["R"]):
-                best = {"n": n, "m": m, **metrics}
-    return best
+) -> float:
+    """Estimate the common 1:1 frequency directly from simulated phases.
+
+    This is used only after a point satisfies the 1:1 synchronization criteria.
+    It does not take the arithmetic mean of the scalar segment frequencies.
+    Instead, it reconstructs both unwrapped phase traces from burst onsets,
+    averages the two instantaneous phase progressions, and estimates the slope
+    of that common phase over the interval where both phase traces are defined:
+
+        f_lock = slope(0.5 * (phi1 + phi2)) / (2*pi)
+
+    The estimate is therefore based on the simulated cycle timing of the locked
+    coupled system.
+    """
+    onsets1 = np.asarray(onsets1, dtype=float)
+    onsets2 = np.asarray(onsets2, dtype=float)
+    if len(onsets1) < 3 or len(onsets2) < 3:
+        return np.nan
+
+    t0 = max(onsets1[0], onsets2[0])
+    t1 = min(onsets1[-1], onsets2[-1])
+    if t1 <= t0 + 2 * dt:
+        return np.nan
+
+    t = np.arange(t0, t1, dt)
+    phi1 = phase_from_onsets(onsets1, t)
+    phi2 = phase_from_onsets(onsets2, t)
+    mask = np.isfinite(phi1) & np.isfinite(phi2)
+    if mask.sum() < 10:
+        return np.nan
+
+    common_phase = 0.5 * (phi1[mask] + phi2[mask])
+    slope = _linear_slope(t[mask], common_phase)
+    return slope / (2 * np.pi)
 
 
 def evaluate_point(
@@ -242,8 +283,6 @@ def evaluate_point(
     freq_tol: float = FREQ_TOL,
     R_tol: float = R_TOL,
     slope_tol: float = SLOPE_TOL,
-    nm_R_tol: float = 0.93,
-    nm_max_order: int = 4,
 ) -> Dict[str, object]:
     """Run and classify one coupled-system point."""
     if transient is None:
@@ -272,10 +311,6 @@ def evaluate_point(
         "R_1_1": np.nan,
         "dphi_1_1": np.nan,
         "phase_slope_1_1": np.nan,
-        "best_n": 1,
-        "best_m": 1,
-        "R_best": np.nan,
-        "phase_slope_best": np.nan,
         "freq_ratio": np.nan,
         "locked_freq": np.nan,
         "regime": "no_osc",
@@ -296,11 +331,6 @@ def evaluate_point(
     out["dphi_1_1"] = plv["dphi"]
     out["phase_slope_1_1"] = plv["slope"]
 
-    best = best_nm_lock(a1["phase_onsets"], a2["phase_onsets"], max_order=nm_max_order, dt=0.01)
-    out["best_n"] = int(best["n"])
-    out["best_m"] = int(best["m"])
-    out["R_best"] = best["R"]
-    out["phase_slope_best"] = best["slope"]
 
     is_1_1 = (
         rel_diff < freq_tol
@@ -311,19 +341,10 @@ def evaluate_point(
     )
     if is_1_1:
         out["regime"] = "sync_1_1"
-        out["locked_freq"] = f_mean
+        out["locked_freq"] = float(estimate_common_frequency(a1["phase_onsets"], a2["phase_onsets"], dt=0.01))
         return out
 
-    # Optional low-order n:m lock. Require both high PLV and small generalized phase drift.
-    if (
-        np.isfinite(best["R"])
-        and best["R"] >= nm_R_tol
-        and np.isfinite(best["slope"])
-        and abs(best["slope"]) <= slope_tol
-        and not (best["n"] == 1 and best["m"] == 1)
-    ):
-        out["regime"] = "lock_n_m"
-        return out
-
+    # Low-order n:m cases are deliberately not separated in this analysis.
+    # Any non-1:1 oscillatory point is treated as drift.
     out["regime"] = "drift"
     return out

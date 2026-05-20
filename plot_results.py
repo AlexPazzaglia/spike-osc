@@ -1,4 +1,4 @@
-"""Create plots from sweep_data.npz."""
+"""Create publication-oriented plots from sweep_data.npz."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from matplotlib.patches import Patch
 
 from analysis import analyze_segment, phase_from_onsets
 from cpg_sim import run_sim
+from text_equations import classification_text, model_equation_text, swept_parameters_text
 
 plt.rcParams.update({
     "font.size": 9,
@@ -26,16 +27,14 @@ plt.rcParams.update({
     "axes.spines.right": False,
 })
 
-REGIME_ORDER = ["sync_1_1", "lock_n_m", "drift", "no_osc"]
+REGIME_ORDER = ["sync_1_1", "drift", "no_osc"]
 REGIME_LABEL = {
     "sync_1_1": "1:1 synchronized",
-    "lock_n_m": "n:m locked",
     "drift": "drift",
     "no_osc": "lost / invalid oscillation",
 }
 REGIME_COLORS = {
     "sync_1_1": "#2E7D32",
-    "lock_n_m": "#8E24AA",
     "drift": "#1565C0",
     "no_osc": "#C62828",
 }
@@ -135,7 +134,7 @@ def make_main_figure(data: Dict[str, np.ndarray], out_dir: Path) -> None:
     if np.any(bad):
         ax.plot(data["target_delta_f"][bad], data["f_iso_2"][bad], "x", ms=7, label="invalid isolated oscillator")
     _add_zero_detuning_line(ax)
-    ax.set_xlabel("target isolated mismatch Δf [Hz]")
+    ax.set_xlabel("target isolated mismatch Δf = f2_iso - f1_iso [Hz]\n(left: segment 2 slower; right: segment 2 faster)")
     ax.set_ylabel("isolated frequency [Hz]")
     ax.set_title("A. Isolated-frequency calibration")
     ax.legend(frameon=False, fontsize=8)
@@ -158,7 +157,7 @@ def make_main_figure(data: Dict[str, np.ndarray], out_dir: Path) -> None:
     ax.pcolormesh(Xe, Ye, _regime_code(data["regime"]), cmap=cmap, norm=norm, shading="auto")
     _add_zero_detuning_line(ax)
     _apply_symlog_coupling_axis(ax, y)
-    ax.set_xlabel("measured isolated mismatch Δf = f1_iso - f2_iso [Hz]")
+    ax.set_xlabel("measured isolated mismatch Δf = f2_iso - f1_iso [Hz]\n(left: slower segment 2; right: faster segment 2)")
     ax.set_ylabel("inter-segment inhibitory weight [nS, symlog]")
     ax.set_title(f"B. Empirical regime map (g_inter ≤ {y.max()/g_intra_nS:.2f} g_intra)")
     handles = [Patch(facecolor=REGIME_COLORS[r], label=REGIME_LABEL[r]) for r in REGIME_ORDER]
@@ -169,12 +168,12 @@ def make_main_figure(data: Dict[str, np.ndarray], out_dir: Path) -> None:
     locked = data["locked_freq"].copy()
     locked[data["regime"] != "sync_1_1"] = np.nan
     pcm = ax.pcolormesh(Xe, Ye, locked, shading="auto")
-    fig.colorbar(pcm, ax=ax, label="locked 1:1 frequency [Hz]")
+    fig.colorbar(pcm, ax=ax, label="simulated resulting 1:1 frequency [Hz]")
     _add_zero_detuning_line(ax)
     _apply_symlog_coupling_axis(ax, y)
-    ax.set_xlabel("measured isolated mismatch Δf [Hz]")
+    ax.set_xlabel("measured isolated mismatch Δf = f2_iso - f1_iso [Hz]")
     ax.set_ylabel("inter-segment inhibitory weight [nS, symlog]")
-    ax.set_title("C. Resulting frequency inside 1:1 locking region")
+    ax.set_title("C. Resulting frequency from simulated common-phase slope")
 
     # D. PLV heatmap
     ax = fig.add_subplot(gs[1, 1])
@@ -186,7 +185,7 @@ def make_main_figure(data: Dict[str, np.ndarray], out_dir: Path) -> None:
         pass
     _add_zero_detuning_line(ax)
     _apply_symlog_coupling_axis(ax, y)
-    ax.set_xlabel("measured isolated mismatch Δf [Hz]")
+    ax.set_xlabel("measured isolated mismatch Δf = f2_iso - f1_iso [Hz]")
     ax.set_ylabel("inter-segment inhibitory weight [nS, symlog]")
     ax.set_title("D. Phase-locking strength")
 
@@ -227,13 +226,7 @@ def _pick_examples(data: Dict[str, np.ndarray]) -> Dict[str, Tuple[int, int]]:
         _, _, j, i = min(scores)
         examples["no_osc"] = (j, i)
 
-    idx = np.argwhere(regime == "lock_n_m")
-    if len(idx):
-        scores = []
-        for j, i in idx:
-            scores.append((-data["R_best"][j, i] if np.isfinite(data["R_best"][j, i]) else 0, j, i))
-        _, j, i = min(scores)
-        examples["lock_n_m"] = (j, i)
+
 
     return examples
 
@@ -254,7 +247,7 @@ def make_example_figure(data: Dict[str, np.ndarray], out_dir: Path, display_wind
     if not examples:
         return
 
-    labels = [r for r in ["sync_1_1", "drift", "no_osc", "lock_n_m"] if r in examples]
+    labels = [r for r in ["sync_1_1", "drift", "no_osc"] if r in examples]
     nrows = len(labels)
     fig = plt.figure(figsize=(12, 3.2 * nrows))
     gs = gridspec.GridSpec(nrows, 3, figure=fig, width_ratios=[1.4, 1.0, 1.0], hspace=0.55, wspace=0.28)
@@ -346,7 +339,7 @@ def make_architecture_figure(data: Dict[str, np.ndarray], out_dir: Path) -> None
     The network schematic follows the clearer layout used in the minimal
     working example: two vertical half-centers, segment boxes, bold fixed
     intra-segment inhibition, and thinner crossed inter-segment inhibition.
-    The right panel keeps the model equations and makes
+    The right panel keeps the publication-oriented model equations and makes
     explicit which parameters are swept.
     """
     import matplotlib.patches as mpatches
@@ -455,45 +448,19 @@ def make_architecture_figure(data: Dict[str, np.ndarray], out_dir: Path) -> None
     ax.axis("off")
     ax.text(0.0, 0.99, "B. Model equations and varied parameters", fontsize=12, weight="bold", va="top")
 
-    eq_text = (
-        "Adaptive integrate-and-fire neuron\n"
-        r"$\tau_{m,i}\frac{du_i}{dt}=-(u_i-E_{rest})-R_m w_i$" "\n"
-        r"$\qquad + R_m\left[I_{ext,i}+\sum_j g_{ij}(E_{inh}-u_i)\right]$" "\n"
-        r"$\tau_{w,i}\frac{dw_i}{dt}=-w_i$" "\n"
-        r"Spike if $u_i\geq E_{th}$: $u_i\leftarrow E_{rest}$, "
-        r"$w_i\leftarrow w_i+\Delta w$, refractory for $t_{ref,i}$." "\n\n"
-        "Conductance-based inhibitory synapse\n"
-        r"$\tau_{syn,i}\frac{dg_{ij}}{dt}=-g_{ij}$" "\n"
-        r"After delay $d_{ij}$, a spike from neuron $j$ increments "
-        r"$g_{ij}\leftarrow g_{ij}+W_{ij}$."
-    )
+    eq_text = model_equation_text()
     ax.text(0.02, 0.88, eq_text, fontsize=10, va="top", family="serif", linespacing=1.25,
             bbox=dict(boxstyle="round,pad=0.45", fc="white", ec="0.75"))
 
-    sweep_text = (
-        "Parameters changed in the analysis\n"
-        r"1. Segment 1 is calibrated to the reference isolated frequency:" "\n"
-        fr"   $f^{{iso}}_1\approx {f1:.2f}$ Hz, with absolute time scale $k_1={k1_abs:.3g}$." "\n"
-        r"2. Segment 2 is detuned by symmetric target frequency mismatch:" "\n"
-        fr"   $\Delta f\in[{df_min:.2f},{df_max:.2f}]$ Hz, "
-        r"where $\Delta f=f^{iso}_1-f^{iso}_2$." "\n"
-        r"3. Detuning is implemented by segment-wise time dilation:" "\n"
-        r"   $\tau_m,\tau_w,\tau_{syn},t_{ref},d \mapsto k_s(\cdot)$." "\n"
-        r"4. Crossed inter-segment inhibition $g_{inter}$ is swept on a log scale; "
-        r"$g_{intra}$ is fixed."
+    sweep_text = swept_parameters_text(
+        f1=f1, k1_abs=k1_abs, df_min=df_min, df_max=df_max,
+        g_min=g_min, g_max=g_max, g_intra_nS=g_intra_nS,
     )
     ax.text(0.02, 0.52, sweep_text, fontsize=10, va="top", linespacing=1.35,
             bbox=dict(boxstyle="round,pad=0.45", fc="#FFF7E6", ec=inter_color, lw=1.4))
 
-    classification_text = (
-        "Synchronization criterion\n"
-        r"A point is classified as 1:1 synchronized only if both segments remain " "\n"
-        r"oscillatory, their measured cycle frequencies match within tolerance, " "\n"
-        r"the 1:1 phase-locking value is high, and the unwrapped phase difference " "\n"
-        r"has negligible residual drift. Otherwise the point is classified as drift, " "\n"
-        r"low-order $n:m$ locking, or lost/invalid oscillation."
-    )
-    ax.text(0.02, 0.03, classification_text, fontsize=9.1, va="bottom", linespacing=1.3,
+    class_text = classification_text()
+    ax.text(0.02, 0.03, class_text, fontsize=9.1, va="bottom", linespacing=1.3,
             bbox=dict(boxstyle="round,pad=0.4", fc="0.97", ec="0.82"))
 
     fig.savefig(out_dir / "network_architecture_equations.png", dpi=300)

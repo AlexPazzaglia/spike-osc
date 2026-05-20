@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import json
 import time
 from pathlib import Path
@@ -63,7 +64,6 @@ def estimate_reference_time_scale(
 
 def default_grids(
     *,
-    quick: bool,
     target_f1_hz: float,
     k1_abs: float,
     f1_actual_hz: float,
@@ -78,22 +78,22 @@ def default_grids(
 ) -> Dict[str, np.ndarray | float]:
     """Build a symmetric Δf grid and a log-spaced low-coupling grid.
 
-    Positive Δf means segment 2 is slower: f2 = f1 - Δf.
-    Therefore the only hard mathematical bound is f2 > 0. In practice, we
-    enforce a configurable minimum f2 to avoid edge points where the simulation
-    contains too few cycles to classify reliably.
+    Positive Δf means segment 2 is intrinsically faster than the reference:
+    f2 = f1 + Δf. Therefore the slow-side bound occurs at negative Δf. In
+    practice, we enforce a configurable minimum f2 to avoid edge points where
+    the simulation contains too few cycles to classify reliably.
     """
     if delta_f_max_hz is None:
         # Keep f2 positive and avoid the extremely slow edge by default.
-        delta_f_max_hz = 2.4 if not quick else 1.8
+        delta_f_max_hz = 2.4
     if n_delta is None:
-        n_delta = 61 if not quick else 25
+        n_delta = 61
     if n_g is None:
-        n_g = 45 if not quick else 19
+        n_g = 45
 
-    # The positive Δf side implies f2 = f1 - Δf. Enforce an absolute
-    # minimum f2 rather than an arbitrary 0.9*f1 limit. This allows, for
-    # example, Δf=2.7 Hz with f1≈3 Hz, where f2≈0.3 Hz.
+    # With the convention Δf = f2 - f1, the negative Δf side implies
+    # f2 = f1 + Δf. Enforce an absolute minimum f2 rather than an
+    # arbitrary fractional limit.
     if min_f2_hz <= 0:
         raise ValueError("min_f2_hz must be positive")
     max_allowed = f1_actual_hz - min_f2_hz
@@ -115,7 +115,7 @@ def default_grids(
             raise ValueError(msg)
 
     target_delta_f = np.linspace(-delta_f_max_hz, delta_f_max_hz, int(n_delta))
-    target_f2 = f1_actual_hz - target_delta_f
+    target_f2 = f1_actual_hz + target_delta_f
     if np.any(target_f2 <= 0):
         raise ValueError("Target f2 contains non-positive frequencies; reduce delta_f_max_hz.")
 
@@ -227,7 +227,7 @@ def sweep(
     num_fields = [
         "freq1", "freq2", "cv1", "cv2", "alt1", "alt2", "balance1", "balance2",
         "n_burst_1", "n_burst_2", "R_1_1", "dphi_1_1", "phase_slope_1_1",
-        "best_n", "best_m", "R_best", "phase_slope_best", "freq_ratio", "locked_freq",
+        "freq_ratio", "locked_freq",
     ]
     out: Dict[str, np.ndarray] = {}
     for field in str_fields:
@@ -236,6 +236,14 @@ def sweep(
         out[field] = np.full((Ng, Nk), np.nan, dtype=float)
 
     t0 = time.time()
+    # Repeated Numba calls allocate many short-lived arrays. Python's cyclic
+    # garbage collector can occasionally pause for a very long time during wide
+    # sweeps, even though these objects are refcounted and not cyclic. Disable
+    # cyclic GC during the inner sweep and re-enable it before returning.
+    gc_was_enabled = gc.isenabled()
+    if gc_was_enabled:
+        gc.disable()
+
     for j, g in enumerate(g_values):
         for i, k2_abs in enumerate(k2_values):
             r = evaluate_point(
@@ -267,6 +275,8 @@ def sweep(
             f"elapsed={elapsed:6.1f}s | eta={eta:6.1f}s | {row_summary}",
             flush=True,
         )
+    if gc_was_enabled:
+        gc.enable()
     return out
 
 
@@ -279,8 +289,7 @@ def save_point_table(path: Path, data: Dict[str, np.ndarray]) -> None:
     target_delta_f = data["target_delta_f"]
     fields = [
         "regime", "status1", "status2", "freq1", "freq2", "locked_freq",
-        "R_1_1", "phase_slope_1_1", "best_n", "best_m", "R_best",
-        "phase_slope_best", "cv1", "cv2", "alt1", "alt2", "balance1", "balance2",
+        "R_1_1", "phase_slope_1_1", "cv1", "cv2", "alt1", "alt2", "balance1", "balance2",
     ]
     with path.open("w", newline="") as f:
         writer = csv.writer(f)
@@ -300,10 +309,9 @@ def save_point_table(path: Path, data: Dict[str, np.ndarray]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="results", help="Output directory")
-    parser.add_argument("--quick", action="store_true", help="Use a small grid for testing")
     parser.add_argument("--T", type=float, default=None, help="Simulation duration in seconds")
     parser.add_argument("--target-f1-Hz", type=float, default=3.0, help="Target isolated frequency of segment 1")
-    parser.add_argument("--delta-f-max-Hz", type=float, default=None, help="Symmetric detuning range: [-D, +D] Hz")
+    parser.add_argument("--delta-f-max-Hz", type=float, default=None, help="Symmetric detuning range for Δf=f2_iso-f1_iso: [-D, +D] Hz")
     parser.add_argument("--n-delta", type=int, default=None, help="Number of detuning samples")
     parser.add_argument("--n-g", type=int, default=None, help="Number of coupling samples including zero")
     parser.add_argument("--g-min-nS", type=float, default=0.002, help="Smallest nonzero inter-segment weight")
@@ -322,7 +330,7 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    T = float(args.T) if args.T is not None else (10.0 if args.quick else 20.0)
+    T = float(args.T) if args.T is not None else 20.0
     g_intra = args.g_intra_nS * 1e-9
     params = {"Delta_w": args.Delta_w_pA * 1e-12, "I_ext": args.I_ext_pA * 1e-12}
 
@@ -341,10 +349,9 @@ def main() -> None:
         f1_est = float(a_ref["freq"])
         print(f"using user-specified k1_abs={k1_abs:.5f}")
 
-    print(f"verified reference f1_iso≈{f1_est:.4f} Hz")
+    print(f"verified reference f1_iso~{f1_est:.4f} Hz")
 
     grids = default_grids(
-        quick=args.quick,
         target_f1_hz=args.target_f1_Hz,
         k1_abs=k1_abs,
         f1_actual_hz=f1_est,
@@ -372,13 +379,13 @@ def main() -> None:
     if args.T is None and args.auto_T and T < rec_T:
         print(
             f"Auto-increasing T from {T:.2f}s to {rec_T:.2f}s so the slowest "
-            f"target oscillator f2≈{np.nanmin(target_f2):.3f} Hz has enough cycles."
+            f"target oscillator f2~{np.nanmin(target_f2):.3f} Hz has enough cycles."
         )
         T = rec_T
     elif T < rec_T:
         print(
             f"WARNING: T={T:.2f}s may be too short for the slowest target "
-            f"oscillator f2≈{np.nanmin(target_f2):.3f} Hz. Recommended T≈{rec_T:.2f}s "
+            f"oscillator f2~{np.nanmin(target_f2):.3f} Hz. Recommended T~{rec_T:.2f}s "
             f"or use --auto-T without an explicit --T."
         )
 
@@ -386,7 +393,7 @@ def main() -> None:
     calib = calibrate_isolated(k2_values, k1_abs=k1_abs, T=T, params=params, g_intra=g_intra)
     f_iso_1 = float(calib["f_iso_1"])
     f_iso_2 = calib["f_iso_2"]
-    delta_f = f_iso_1 - f_iso_2
+    delta_f = f_iso_2 - f_iso_1
     print(f"f_iso_1 = {f_iso_1:.4f} Hz | status={calib['status_iso_1']}")
     print(f"f_iso_2 valid: {np.sum(calib['status_iso_2'] == 'osc')}/{len(k2_values)}")
     print(f"target Δf range: {np.nanmin(target_delta_f):.4f} .. {np.nanmax(target_delta_f):.4f} Hz")
@@ -455,3 +462,11 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # Wide sweeps can leave large Numba/Python object graphs that occasionally
+    # make interpreter shutdown hang on some platforms. All output files are
+    # closed by this point, so use a hard process exit after flushing streams.
+    import os as _os
+    import sys as _sys
+    _sys.stdout.flush()
+    _sys.stderr.flush()
+    _os._exit(0)

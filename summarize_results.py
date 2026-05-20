@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-REGIME_ORDER = ["sync_1_1", "lock_n_m", "drift", "no_osc"]
+REGIME_ORDER = ["sync_1_1", "drift", "no_osc"]
 
 
 def load(path: Path):
@@ -87,10 +87,10 @@ def main():
         "g_max_nS": float(np.nanmax(g) * 1e9),
         "g_max_frac_of_g_intra": float(np.nanmax(g) / float(data["g_intra"])),
         "has_no_oscillation_region": bool(np.any(regime == "no_osc")),
-        "has_nm_locking_region": bool(np.any(regime == "lock_n_m")),
         "notes": [
             "Use sync_boundary.csv to approximate the empirical Arnold-tongue boundary.",
             "Use sync_width_by_coupling.csv to quantify how locking width expands with coupling.",
+            "The detuning sign convention is Δf=f2_iso-f1_iso, so positive values correspond to an intrinsically faster segment 2.",
             "If sync_1_1 remains dominant after widening Δf, the oscillator pair is strongly entrainable under crossed inhibition rather than merely weakly phase-coupled.",
         ],
     }

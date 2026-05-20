@@ -1,4 +1,4 @@
-# Spiking CPG synchronization regime-map analysis
+﻿# Spiking CPG synchronization regime-map analysis
 
 This package simulates two coupled spiking half-center oscillators and maps their synchronization behavior as a function of two experimentally controlled quantities:
 
@@ -9,13 +9,13 @@ The output is an empirical synchronization regime map with an Arnold-tongue-like
 
 ## Files
 
-- `cpg_sim.py` — simulator for the four-neuron adaptive integrate-and-fire CPG.
-- `analysis.py` — burst detection, oscillator validity criteria, phase reconstruction, phase-locking metrics, and regime classification.
-- `sweep_arnold.py` — calibration of the reference oscillator, construction of the symmetric detuning/coupling grid, coupled sweep, and data export.
-- `plot_results.py` — main regime map, representative traces, and architecture/equation schematic.
-- `summarize_results.py` — regime counts, empirical 1:1 locking boundary, locking width summaries, and interpretation JSON.
-- `run_smoke_tests.py` — end-to-end validation on a reduced grid.
-- `requirements.txt` — dependencies.
+- `cpg_sim.py` â€” simulator for the four-neuron adaptive integrate-and-fire CPG.
+- `analysis.py` â€” burst detection, oscillator validity criteria, phase reconstruction, phase-locking metrics, and regime classification.
+- `sweep_arnold.py` â€” calibration of the reference oscillator, construction of the symmetric detuning/coupling grid, coupled sweep, and data export.
+- `plot_results.py` â€” main regime map, representative traces, and architecture/equation schematic.
+- `summarize_results.py` â€” regime counts, empirical 1:1 locking boundary, locking width summaries, and interpretation JSON.
+- `run_analysis_tests.py` â€” end-to-end validation on a reduced grid.
+- `requirements.txt` â€” dependencies.
 
 ## Installation
 
@@ -28,24 +28,24 @@ pip install -r requirements.txt
 ## Quick validation
 
 ```bash
-python run_smoke_tests.py
+python run_analysis_tests.py
 ```
 
 This creates all validation outputs in:
 
 ```text
-smoke_results/
+results_tests/
 ```
 
 including:
 
 ```text
-smoke_results/run_smoke_tests.log
-smoke_results/sweep_data.npz
-smoke_results/arnold_main.png
-smoke_results/example_traces.png
-smoke_results/network_architecture_equations.png
-smoke_results/interpretation_summary.json
+results_tests/run_analysis_tests.log
+results_tests/sweep_data.npz
+results_tests/arnold_main.png
+results_tests/example_traces.png
+results_tests/network_architecture_equations.png
+results_tests/interpretation_summary.json
 ```
 
 ## Full default analysis
@@ -284,9 +284,9 @@ This quantity is plotted only inside the 1:1 locking region. Outside this region
 
 `plot_results.py` produces figures:
 
-1. `network_architecture_equations.png/.pdf` — schematic of the network architecture, model equations, and swept parameters. The topology panel uses the two-vertical-half-center layout from the minimal working example: segment boxes, four colored neurons, bold intra-segment inhibition, and thinner crossed inter-segment inhibition.
-2. `arnold_main.png/.pdf` — four-panel summary containing isolated-frequency calibration, regime map, locked-frequency heatmap, and 1:1 phase-locking-value heatmap.
-3. `example_traces.png/.pdf` — representative traces for selected regimes. By default, only the final 2 s of the simulation are displayed to make the spikes visible; the run itself uses the full duration stored in the sweep data.
+1. `network_architecture_equations.png/.pdf` â€” schematic of the network architecture, model equations, and swept parameters. The topology panel uses the two-vertical-half-center layout from the minimal working example: segment boxes, four colored neurons, bold intra-segment inhibition, and thinner crossed inter-segment inhibition.
+2. `arnold_main.png/.pdf` â€” four-panel summary containing isolated-frequency calibration, regime map, locked-frequency heatmap, and 1:1 phase-locking-value heatmap.
+3. `example_traces.png/.pdf` â€” representative traces for selected regimes. By default, only the final 2 s of the simulation are displayed to make the spikes visible; the run itself uses the full duration stored in the sweep data.
 
 The regime map uses a symlog y-axis for coupling, preserving the exact zero-coupling row while giving high visual resolution to very weak nonzero coupling values.
 
@@ -294,15 +294,15 @@ The regime map uses a symlog y-axis for coupling, preserving the exact zero-coup
 
 A complete run produces:
 
-- `sweep_data.npz` — complete machine-readable arrays;
-- `sweep_points.csv` — long-form table, one row per parameter point;
-- `summary.json` — sweep settings and regime counts;
-- `arnold_main.png/.pdf` — main regime-map figure;
-- `example_traces.png/.pdf` — short-window example traces;
-- `network_architecture_equations.png/.pdf` — architecture/equation schematic;
-- `interpretation_summary.json` — regime percentages and interpretation notes;
-- `sync_boundary.csv` — empirical minimal coupling needed for 1:1 locking at each detuning;
-- `sync_width_by_coupling.csv` — width of the 1:1 locking interval by coupling strength.
+- `sweep_data.npz` â€” complete machine-readable arrays;
+- `sweep_points.csv` â€” long-form table, one row per parameter point;
+- `summary.json` â€” sweep settings and regime counts;
+- `arnold_main.png/.pdf` â€” main regime-map figure;
+- `example_traces.png/.pdf` â€” short-window example traces;
+- `network_architecture_equations.png/.pdf` â€” architecture/equation schematic;
+- `interpretation_summary.json` â€” regime percentages and interpretation notes;
+- `sync_boundary.csv` â€” empirical minimal coupling needed for 1:1 locking at each detuning;
+- `sync_width_by_coupling.csv` â€” width of the 1:1 locking interval by coupling strength.
 
 ## Interpretation
 
@@ -311,3 +311,4 @@ Do not describe the output as a clean analytical Arnold tongue unless the regime
 > We empirically mapped synchronization regimes in two coupled spiking half-center oscillators as a function of isolated frequency mismatch and crossed inter-segment inhibitory strength. The 1:1 phase-locked region is Arnold-tongue-like, but the full spiking model also permits drift, higher-order locking, irregular/asymmetric activity, and loss of valid oscillation.
 
 That wording avoids overclaiming phase-oscillator theory while preserving the useful Arnold-tongue comparison.
+
