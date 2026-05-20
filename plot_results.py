@@ -1,14 +1,4 @@
-"""Create publication-oriented plots from sweep_data.npz.
-
-Version 3 plotting changes
---------------------------
-- The y-axis is symlog-scaled to make very small inter-segment couplings visible
-  while preserving the exact g=0 row.
-- The x-axis is the measured isolated mismatch Δf, with a symmetric target Δf
-  grid saved separately.
-- The plots show k2 relative to the reference segment time scale, because this
-  is the interpretable speed-up/slow-down control.
-"""
+"""Create plots from sweep_data.npz."""
 
 from __future__ import annotations
 
@@ -353,105 +343,128 @@ def make_example_figure(data: Dict[str, np.ndarray], out_dir: Path, display_wind
 def make_architecture_figure(data: Dict[str, np.ndarray], out_dir: Path) -> None:
     """Draw the network architecture and model equations used in the sweep.
 
-    The figure is intentionally self-contained: it shows the four-neuron
-    architecture, distinguishes fixed intra-segment inhibition from swept
-    inter-segment inhibition, and states the AdIF/synapse equations plus the
-    time-dilation parameters used to impose isolated-frequency mismatch.
+    The network schematic follows the clearer layout used in the minimal
+    working example: two vertical half-centers, segment boxes, bold fixed
+    intra-segment inhibition, and thinner crossed inter-segment inhibition.
+    The right panel keeps the model equations and makes
+    explicit which parameters are swept.
     """
-    import matplotlib.patches as patches
+    import matplotlib.patches as mpatches
 
     g_intra_nS = float(data.get("g_intra", np.array(50e-9))) * 1e9
     g_vals = np.asarray(data.get("g_inter_values", np.array([0.0])), dtype=float) * 1e9
-    g_min = float(np.nanmin(g_vals[g_vals > 0])) if np.any(g_vals > 0) else 0.0
-    g_max = float(np.nanmax(g_vals)) if len(g_vals) else 0.0
+    g_pos = g_vals[g_vals > 0]
+    g_min = float(np.nanmin(g_pos)) if g_pos.size else 0.0
+    g_max = float(np.nanmax(g_vals)) if g_vals.size else 0.0
     f1 = float(data.get("f_iso_1", np.array(np.nan)))
     df = np.asarray(data.get("target_delta_f", data.get("delta_f", np.array([]))), dtype=float)
     df_min = float(np.nanmin(df)) if df.size else np.nan
     df_max = float(np.nanmax(df)) if df.size else np.nan
     k1_abs = float(data.get("k1_abs", np.array(np.nan)))
 
-    fig = plt.figure(figsize=(13.5, 8.0))
-    gs = gridspec.GridSpec(1, 2, figure=fig, width_ratios=[1.05, 1.25], wspace=0.18)
+    fig = plt.figure(figsize=(14.5, 8.8))
+    fig.patch.set_facecolor("white")
+    gs = gridspec.GridSpec(1, 2, figure=fig, width_ratios=[1.0, 1.18], wspace=0.18)
 
     # ------------------------------------------------------------------
-    # Left panel: graph architecture
+    # Left panel: network diagram using the minimal-working-example layout
     # ------------------------------------------------------------------
-    ax = fig.add_subplot(gs[0, 0])
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, 7)
-    ax.axis("off")
+    ax_sc = fig.add_subplot(gs[0, 0])
+    ax_sc.set_xlim(0, 10)
+    ax_sc.set_ylim(0, 12)
+    ax_sc.set_aspect("equal")
+    ax_sc.axis("off")
+    ax_sc.set_title("A. Network topology", fontsize=12, fontweight="bold", pad=6)
 
-    seg_boxes = [
-        (0.6, 1.0, 3.6, 5.4, "Segment 1\nreference oscillator"),
-        (5.8, 1.0, 3.6, 5.4, "Segment 2\ndetuned oscillator"),
-    ]
-    for x0, y0, w, h, lab in seg_boxes:
-        rect = patches.FancyBboxPatch(
-            (x0, y0), w, h, boxstyle="round,pad=0.03,rounding_size=0.12",
-            ec="0.35", fc="0.98", lw=1.1
+    node_pos = {0: (2, 9), 1: (2, 6), 2: (8, 9), 3: (8, 6)}
+    node_label = ["N0\nSeg1-A", "N1\nSeg1-B", "N2\nSeg2-A", "N3\nSeg2-B"]
+
+    # Segment boxes, deliberately matching the supplied example style.
+    for xs, lbl, subtitle in [
+        ([0.5, 4.5], "Segment 1", "reference oscillator"),
+        ([5.5, 9.5], "Segment 2", "detuned oscillator"),
+    ]:
+        rect = mpatches.FancyBboxPatch(
+            (xs[0], 4.5), xs[1] - xs[0], 6.0,
+            boxstyle="round,pad=0.3",
+            linewidth=1.5,
+            edgecolor="#999999",
+            facecolor="none",
+            zorder=1,
+            linestyle="--",
         )
-        ax.add_patch(rect)
-        ax.text(x0 + w/2, y0 + h - 0.35, lab, ha="center", va="top", fontsize=10, weight="bold")
+        ax_sc.add_patch(rect)
+        ax_sc.text(np.mean(xs), 11.1, lbl, ha="center", va="bottom",
+                   fontsize=9, color="#555555", fontstyle="italic", fontweight="bold")
 
-    coords = {
-        0: (2.4, 4.5), 1: (2.4, 2.3),
-        2: (7.6, 4.5), 3: (7.6, 2.3),
-    }
-    labels = {0: "N0\nA", 1: "N1\nB", 2: "N2\nA", 3: "N3\nB"}
-    for n, (x, y) in coords.items():
-        circ = patches.Circle((x, y), 0.48, fc=NEURON_COLORS[n], ec="white", lw=1.5, alpha=0.95)
-        ax.add_patch(circ)
-        ax.text(x, y, labels[n], ha="center", va="center", fontsize=9, color="white", weight="bold")
+    # Neurons.
+    for n, (x, y) in node_pos.items():
+        circ = plt.Circle((x, y), 0.9, color=NEURON_COLORS[n], zorder=4, ec="white", lw=1.5)
+        ax_sc.add_patch(circ)
+        ax_sc.text(x, y, node_label[n], ha="center", va="center",
+                   fontsize=7.0, color="white", fontweight="bold", zorder=5)
 
-    def inhib_arrow(a, b, color="0.2", lw=1.6, rad=0.0, label=None, label_xy=None):
-        x1, y1 = coords[a]
-        x2, y2 = coords[b]
-        arrow = patches.FancyArrowPatch(
-            (x1, y1), (x2, y2), arrowstyle="-[", mutation_scale=12,
-            connectionstyle=f"arc3,rad={rad}", lw=lw, color=color, shrinkA=35, shrinkB=35
+    def draw_arrow(ax, p0, p1, color, lw, offset=(0, 0), style="solid", alpha=1.0):
+        """Draw a connection in the same visual style as the supplied MWE."""
+        x0 = p0[0] + offset[0]
+        y0 = p0[1] + offset[1]
+        x1 = p1[0] + offset[0]
+        y1 = p1[1] + offset[1]
+        ax.annotate(
+            "", xy=(x1, y1), xytext=(x0, y0),
+            arrowprops=dict(
+                arrowstyle="-|>", color=color, lw=lw,
+                shrinkA=10, shrinkB=10, mutation_scale=11,
+                linestyle=style, alpha=alpha,
+            ),
+            zorder=2,
         )
-        ax.add_patch(arrow)
-        if label:
-            lx, ly = label_xy if label_xy else ((x1+x2)/2, (y1+y2)/2)
-            ax.text(lx, ly, label, ha="center", va="center", fontsize=8,
-                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.85), color=color)
 
-    # fixed intra-segment mutual inhibition
-    inhib_arrow(0, 1, color="0.25", lw=2.0, rad=0.18, label=r"$g_{\mathrm{intra}}$ fixed", label_xy=(1.35, 3.4))
-    inhib_arrow(1, 0, color="0.25", lw=2.0, rad=0.18)
-    inhib_arrow(2, 3, color="0.25", lw=2.0, rad=0.18, label=r"$g_{\mathrm{intra}}$ fixed", label_xy=(8.65, 3.4))
-    inhib_arrow(3, 2, color="0.25", lw=2.0, rad=0.18)
+    # Intra-segment arrows: fixed, strong, grey.
+    intra_color = "#555555"
+    draw_arrow(ax_sc, node_pos[0], node_pos[1], intra_color, 2.7, offset=(-0.32, 0))
+    draw_arrow(ax_sc, node_pos[1], node_pos[0], intra_color, 2.7, offset=(0.32, 0))
+    draw_arrow(ax_sc, node_pos[2], node_pos[3], intra_color, 2.7, offset=(0.32, 0))
+    draw_arrow(ax_sc, node_pos[3], node_pos[2], intra_color, 2.7, offset=(-0.32, 0))
 
-    # swept crossed inter-segment inhibition
-    sweep_color = "#C77700"
-    inhib_arrow(0, 3, color=sweep_color, lw=2.3, rad=-0.08, label=r"$g_{\mathrm{inter}}$ swept", label_xy=(5.0, 2.55))
-    inhib_arrow(3, 0, color=sweep_color, lw=2.3, rad=-0.08)
-    inhib_arrow(1, 2, color=sweep_color, lw=2.3, rad=0.08, label=r"$g_{\mathrm{inter}}$ swept", label_xy=(5.0, 4.25))
-    inhib_arrow(2, 1, color=sweep_color, lw=2.3, rad=0.08)
+    # Inter-segment arrows: swept, crossed, orange.
+    inter_color = "#FF8F00"
+    draw_arrow(ax_sc, node_pos[0], node_pos[3], inter_color, 1.7, offset=(0, -0.22))
+    draw_arrow(ax_sc, node_pos[3], node_pos[0], inter_color, 1.7, offset=(0, 0.22))
+    draw_arrow(ax_sc, node_pos[1], node_pos[2], inter_color, 1.7, offset=(0, 0.22))
+    draw_arrow(ax_sc, node_pos[2], node_pos[1], inter_color, 1.7, offset=(0, -0.22))
 
-    ax.text(5.0, 6.72, "A. Network architecture", ha="center", va="top", fontsize=12, weight="bold")
-    ax.text(5.0, 0.45,
-            f"Sweep range: $g_{{inter}}$ = {g_min:.4g}–{g_max:.3g} nS; "
-            f"$g_{{intra}}$ = {g_intra_nS:.1f} nS",
-            ha="center", va="center", fontsize=9, color=sweep_color)
+    # Legend for arrows. The detailed parameter values are kept in the legend and
+    # right-hand methods panel to avoid cluttering the schematic itself.
+    ax_sc.plot([], [], color=intra_color, lw=2.7, label=rf"Intra-segment inhibition ($g_{{intra}}={g_intra_nS:.0f}$ nS)")
+    ax_sc.plot([], [], color=inter_color, lw=1.7, label=rf"Inter-segment inhibition ($g_{{inter}}={g_min:.4g}$–{g_max:.3g} nS, swept)")
+    ax_sc.legend(fontsize=7.5, loc="lower center", framealpha=0.88, ncol=1,
+                 bbox_to_anchor=(0.5, 0.14))
+
+    ax_sc.text(
+        5, 0.65,
+        "All synapses are inhibitory; crossed inter-segment connections couple opposite phases",
+        ha="center", va="bottom", fontsize=7.8, color="#333333",
+        bbox=dict(boxstyle="round", fc="#EEEEEE", ec="#CCCCCC", lw=0.8),
+    )
 
     # ------------------------------------------------------------------
-    # Right panel: model and varied parameters
+    # Right panel: model equations and swept parameters
     # ------------------------------------------------------------------
     ax = fig.add_subplot(gs[0, 1])
     ax.axis("off")
-    ax.text(0.0, 0.99, "B. Neuron, synapse and sweep parameters", fontsize=12, weight="bold", va="top")
+    ax.text(0.0, 0.99, "B. Model equations and varied parameters", fontsize=12, weight="bold", va="top")
 
     eq_text = (
         "Adaptive integrate-and-fire neuron\n"
         r"$\tau_{m,i}\frac{du_i}{dt}=-(u_i-E_{rest})-R_m w_i$" "\n"
-        r"$\quad + R_m\left[I_{ext,i}+\sum_j g_{ij}(E_{inh}-u_i)\right]$" "\n"
+        r"$\qquad + R_m\left[I_{ext,i}+\sum_j g_{ij}(E_{inh}-u_i)\right]$" "\n"
         r"$\tau_{w,i}\frac{dw_i}{dt}=-w_i$" "\n"
         r"Spike if $u_i\geq E_{th}$: $u_i\leftarrow E_{rest}$, "
         r"$w_i\leftarrow w_i+\Delta w$, refractory for $t_{ref,i}$." "\n\n"
-        "Conductance-based inhibition\n"
+        "Conductance-based inhibitory synapse\n"
         r"$\tau_{syn,i}\frac{dg_{ij}}{dt}=-g_{ij}$" "\n"
-        r"After delay $d_{ij}$, spike from $j$ increments "
+        r"After delay $d_{ij}$, a spike from neuron $j$ increments "
         r"$g_{ij}\leftarrow g_{ij}+W_{ij}$."
     )
     ax.text(0.02, 0.88, eq_text, fontsize=10, va="top", family="serif", linespacing=1.25,
@@ -459,35 +472,34 @@ def make_architecture_figure(data: Dict[str, np.ndarray], out_dir: Path) -> None
 
     sweep_text = (
         "Parameters changed in the analysis\n"
-        r"1. Frequency mismatch is imposed by segment-wise time dilation:" "\n"
-        r"   $\tau_m,\tau_w,\tau_{syn},t_{ref},d \mapsto k_s(\cdot)$ "
-        r"for segment $s$." "\n"
-        fr"2. Segment 1 is calibrated to $f^{{iso}}_1\approx {f1:.2f}$ Hz "
-        fr"($k_1$={k1_abs:.3g})." "\n"
-        r"3. Segment 2 is assigned a symmetric target detuning " "\n"
+        r"1. Segment 1 is calibrated to the reference isolated frequency:" "\n"
+        fr"   $f^{{iso}}_1\approx {f1:.2f}$ Hz, with absolute time scale $k_1={k1_abs:.3g}$." "\n"
+        r"2. Segment 2 is detuned by symmetric target frequency mismatch:" "\n"
         fr"   $\Delta f\in[{df_min:.2f},{df_max:.2f}]$ Hz, "
         r"where $\Delta f=f^{iso}_1-f^{iso}_2$." "\n"
-        r"4. Crossed inter-segment inhibition $g_{inter}$ is swept " "\n"
-        r"   logarithmically; $g_{intra}$ and neuron parameters are fixed."
+        r"3. Detuning is implemented by segment-wise time dilation:" "\n"
+        r"   $\tau_m,\tau_w,\tau_{syn},t_{ref},d \mapsto k_s(\cdot)$." "\n"
+        r"4. Crossed inter-segment inhibition $g_{inter}$ is swept on a log scale; "
+        r"$g_{intra}$ is fixed."
     )
     ax.text(0.02, 0.52, sweep_text, fontsize=10, va="top", linespacing=1.35,
-            bbox=dict(boxstyle="round,pad=0.45", fc="#FFF7E6", ec="#C77700", lw=1.4))
+            bbox=dict(boxstyle="round,pad=0.45", fc="#FFF7E6", ec=inter_color, lw=1.4))
 
     classification_text = (
-        "Point classification\n"
-        r"A grid point is called 1:1 synchronized only if both " "\n"
-        r"segments remain oscillatory, their measured frequencies " "\n"
-        r"match within tolerance, the 1:1 phase-locking value is high, " "\n"
-        r"and the unwrapped phase difference has negligible residual drift. " "\n"
-        r"Otherwise the point is classified as drift, n:m locking, " "\n"
-        r"or lost/invalid oscillation."
+        "Synchronization criterion\n"
+        r"A point is classified as 1:1 synchronized only if both segments remain " "\n"
+        r"oscillatory, their measured cycle frequencies match within tolerance, " "\n"
+        r"the 1:1 phase-locking value is high, and the unwrapped phase difference " "\n"
+        r"has negligible residual drift. Otherwise the point is classified as drift, " "\n"
+        r"low-order $n:m$ locking, or lost/invalid oscillation."
     )
-    ax.text(0.02, 0.02, classification_text, fontsize=9, va="bottom", linespacing=1.3,
+    ax.text(0.02, 0.03, classification_text, fontsize=9.1, va="bottom", linespacing=1.3,
             bbox=dict(boxstyle="round,pad=0.4", fc="0.97", ec="0.82"))
 
     fig.savefig(out_dir / "network_architecture_equations.png", dpi=300)
     fig.savefig(out_dir / "network_architecture_equations.pdf")
     plt.close(fig)
+
 
 
 def main() -> None:

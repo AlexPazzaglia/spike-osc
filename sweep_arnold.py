@@ -1,24 +1,4 @@
-"""Run the isolated calibration and coupled 2D Arnold-tongue sweep.
-
-Version 3 changes
------------------
-The sweep is now defined in the scientifically meaningful coordinates:
-
-    x-axis: target isolated frequency mismatch Δf = f1_iso - f2_iso
-    y-axis: inter-segment inhibitory coupling g_inter
-
-Rather than sweeping an arbitrary raw k2 range, the script first chooses a
-reference segment-1 time scale that gives the requested baseline frequency
-(default: 3 Hz). It then builds a symmetric Δf grid and converts each target
-f2_iso into a segment-2 time scale using the time-dilation approximation.
-The actual isolated frequencies are measured and saved, so the final plots use
-measured Δf, not the nominal target grid.
-
-Version 3 also removes the over-strict 0.9*f1 detuning limit. The slow-side
-limit is now controlled by an absolute minimum target frequency for segment 2,
-and the script can automatically increase T so the slowest oscillator still has
-enough post-transient cycles for reliable classification.
-"""
+"""Run the isolated calibration and coupled 2D Arnold-tongue sweep."""
 
 from __future__ import annotations
 

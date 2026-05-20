@@ -12,7 +12,7 @@ The output is an empirical synchronization regime map with an Arnold-tongue-like
 - `cpg_sim.py` — simulator for the four-neuron adaptive integrate-and-fire CPG.
 - `analysis.py` — burst detection, oscillator validity criteria, phase reconstruction, phase-locking metrics, and regime classification.
 - `sweep_arnold.py` — calibration of the reference oscillator, construction of the symmetric detuning/coupling grid, coupled sweep, and data export.
-- `plot_results.py` — publication-oriented plots: main regime map, representative traces, and architecture/equation schematic.
+- `plot_results.py` — main regime map, representative traces, and architecture/equation schematic.
 - `summarize_results.py` — regime counts, empirical 1:1 locking boundary, locking width summaries, and interpretation JSON.
 - `run_smoke_tests.py` — end-to-end validation on a reduced grid.
 - `requirements.txt` — dependencies.
@@ -292,9 +292,9 @@ This quantity is plotted only inside the 1:1 locking region. Outside this region
 
 ### Visualization
 
-`plot_results.py` produces three publication-oriented figures:
+`plot_results.py` produces figures:
 
-1. `network_architecture_equations.png/.pdf` — schematic of the network architecture, model equations, and swept parameters.
+1. `network_architecture_equations.png/.pdf` — schematic of the network architecture, model equations, and swept parameters. The topology panel uses the two-vertical-half-center layout from the minimal working example: segment boxes, four colored neurons, bold intra-segment inhibition, and thinner crossed inter-segment inhibition.
 2. `arnold_main.png/.pdf` — four-panel summary containing isolated-frequency calibration, regime map, locked-frequency heatmap, and 1:1 phase-locking-value heatmap.
 3. `example_traces.png/.pdf` — representative traces for selected regimes. By default, only the final 2 s of the simulation are displayed to make the spikes visible; the run itself uses the full duration stored in the sweep data.
 
