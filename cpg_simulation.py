@@ -10,42 +10,13 @@ The simulation is unchanged. The analysis is intentionally simple:
 5. compare oscillators with the wrapped phase difference.
 """
 
+from os import times
+
 import numpy as np
 import brian2 as b2
 import matplotlib.pyplot as plt
 
 from scipy.ndimage import gaussian_filter1d
-
-def last_seconds(times, seconds):
-    return times >= times[-1] - seconds
-
-def legend_outside():
-    """Put the legend in a narrow right column, close to the figure edge."""
-
-    ax  = plt.gca()
-    fig = ax.get_figure()
-
-    # Legend
-    handles, labels = ax.get_legend_handles_labels()
-    if len(handles) > 0:
-        ax.figure.legend(
-            handles,
-            labels,
-            frameon=False,
-            loc="upper right",
-            bbox_to_anchor=(0.99, 0.96),
-            fontsize=6,
-            handlelength=0.8,
-            handletextpad=0.3,
-            labelspacing=0.2,
-            borderaxespad=0.0,
-        )
-
-    # Layout
-    fig.tight_layout()
-    fig.subplots_adjust(right=0.91)
-    return
-
 class SpikingCPG():
 
     def __init__(
@@ -74,12 +45,12 @@ class SpikingCPG():
         self.ner_params = dict(
             # AdEx neuron
             tau_m   = 16.7  * b2.ms,
-            R_m     = 83    * b2.Mohm,
+            R_m     = 80    * b2.Mohm,
             V_rest  = -70   * b2.mV,
             V_rheo  = -50   * b2.mV,
-            Delta_T = 2     * b2.mV,
-            V_reset = -58   * b2.mV,
+            V_reset = -52   * b2.mV,
             V_thres = 0     * b2.mV,
+            Delta_T = 2     * b2.mV,
             a_gain  = 2     * b2.nS,
             tau_w   = 180   * b2.ms,
             delta_w = 50    * b2.pA,
@@ -297,10 +268,10 @@ class SpikingCPG():
             "params"      : self.ner_params,
         }
         if self.record:
-            self.sim_out["t"]     = self.statemon.t / b2.second
-            self.sim_out["v"]     = self.statemon.v / b2.mV
-            self.sim_out["w"]     = self.statemon.w / b2.pA
-            self.sim_out["I_syn"] = self.statemon.I_syn / b2.pA
+            self.sim_out["t"]     = np.array( self.statemon.t     )
+            self.sim_out["v"]     = np.array( self.statemon.v     )
+            self.sim_out["w"]     = np.array( self.statemon.w     )
+            self.sim_out["I_syn"] = np.array( self.statemon.I_syn )
 
         # Compute signals phases
         self.get_bursts()
@@ -313,17 +284,26 @@ class SpikingCPG():
 
     def _get_isi_threshold(self):
         """Get ISI threshold separating intra-burst and inter-burst."""
-        isis = np.concatenate(
-            [
-                np.diff(np.asarray(st, dtype=float))
-                for st in self.sim_out["spike_trains"].values()
-            ]
-        )
-        isis  = np.sort(isis[isis > 0.0])
+
+        # Get ISIs for all neurons
+        isis = {
+            i : np.sort( np.diff(st) )
+            for i, st in self.sim_out["spike_trains"].items()
+        }
+
         # Max jump in log-ISI
-        split  = np.argmax(np.diff(np.log(isis)))
+        splits = {
+            i : np.argmax( np.diff( np.log(isis_i) ) )
+            for i, isis_i in isis.items()
+        }
+
         # Compute log-mean
-        isi_th = float(np.sqrt(isis[split] * isis[split + 1]))
+        isi_th = {}
+        for i in isis:
+            isis_i    = isis[i]
+            split_i   = splits[i]
+            isi_th[i] = np.sqrt(isis_i[split_i] * isis_i[split_i + 1])
+
         return isi_th
 
     def _get_bursts_train(
@@ -405,7 +385,7 @@ class SpikingCPG():
 
         # Study bursts
         bursts_trains = {
-            i: self._get_bursts_train(st, isi_th)
+            i: self._get_bursts_train(st, isi_th[i])
             for i, st in self.sim_out["spike_trains"].items()
         }
 
@@ -426,7 +406,7 @@ class SpikingCPG():
 
         # Spike rates
         spike_rates = {
-            i: self._get_spike_rate(st, isi_th)
+            i: self._get_spike_rate(st, isi_th[i])
             for i, st in self.sim_out["spike_trains"].items()
         }
 
@@ -444,6 +424,18 @@ class SpikingCPG():
     # Utils
     # -------------------------------------------------------------------------
 
+    def _get_inds_last_seconds(
+        self,
+        interval : float      = None,
+        times    : np.ndarray = None,
+    ):
+        ''' Get indices of the last seconds of the simulation. '''
+        if times is None:
+            times = self.sim_out["times"]
+        if interval is None:
+            interval = float(self.duration)
+        return times >= times[-1] - interval
+
     def _get_v_nullcline(self, v_m, I_add):
         """AdEx v-nullcline: value of w, for dv/dt = 0."""
 
@@ -460,10 +452,10 @@ class SpikingCPG():
         return v_null
 
     def _get_w_nullcline(self, v_m):
-        """AdEx w-nullcline: value of w, in pA, for dw/dt = 0."""
+        """AdEx w-nullcline: value of w, for dw/dt = 0."""
         params = self.sim_out["params"]
-        a_gain = params["a_gain"]
-        V_rest = params["V_rest"]
+        a_gain = float( params["a_gain"] )
+        V_rest = float( params["V_rest"] )
         return a_gain * (v_m - V_rest)
 
     def _get_neuron_styles(self):
@@ -506,17 +498,37 @@ class SpikingCPG():
         self,
     ):
         ''' Inter-spike-interval histogram '''
+
+        styles = self._get_neuron_styles()
         isi_th = self.sim_out['isi_th']
         spikes = self.sim_out['spike_trains']
-        isis   = np.concatenate([np.diff(st) for st in spikes.values()])
+        isis   = {i: np.diff(st) for i, st in spikes.items()}
 
         fig, ax = plt.subplots(figsize=(5, 3))
-        ax.hist(isis, bins=30, edgecolor="k")
-        ax.axvline(isi_th, linestyle="--", linewidth=1.5, label="thr")
+
+        for i in isis:
+            style = styles[i]
+            ax.hist(
+                isis[i],
+                bins      = 30,
+                alpha     = 0.5,
+                edgecolor = "k",
+                color     = style["color"],
+                label     = style["label"]
+            )
+            ax.axvline(
+                isi_th[i],
+                linestyle = "--",
+                linewidth = 1.5,
+                color     = style["color"],
+                label     = "thr"
+            )
+
         ax.set_xlabel("Inter-spike interval (s)")
         ax.set_ylabel("Count")
         ax.set_title("ISI threshold for burst detection")
-        legend_outside()
+        ax.legend(loc='upper right')
+        fig.tight_layout()
         return fig, ax
 
     def plot_raster(
@@ -528,15 +540,11 @@ class SpikingCPG():
         ''' Raster plot '''
 
         styles = self._get_neuron_styles()
+        idx    = self._get_inds_last_seconds(plot_time)
+        times  = self.sim_out['times'][idx]
         starts = self.sim_out['bursts_onsets']
-        times  = self.sim_out['times']
         spikes = self.sim_out["spike_trains"]
-
-        if plot_time is None:
-            plot_time = times[-1]
-
-        idx    = last_seconds(times, plot_time)
-        t0, t1 = times[idx][0], times[idx][-1]
+        t0, t1 = times[0], times[-1]
 
         if axis is None:
             fig, ax = plt.subplots(figsize=(8, 3))
@@ -581,7 +589,8 @@ class SpikingCPG():
         if decorate:
             ax.set_xlabel("Time (s)")
             ax.set_title("Raster plot")
-            legend_outside()
+            ax.legend(loc='upper right')
+            fig.tight_layout()
 
         return fig, ax
 
@@ -606,10 +615,7 @@ class SpikingCPG():
         phase_2    = np.unwrap(phase_2)
         phase_diff = phase_2 - phase_0
 
-        if plot_time is None:
-            plot_time = times[-1]
-
-        idx        = last_seconds(times, plot_time)
+        idx        = self._get_inds_last_seconds(plot_time)
         times      = times[idx]
         phase_0    = phase_0[idx]
         phase_2    = phase_2[idx]
@@ -739,14 +745,26 @@ class SpikingCPG():
         plot_time: float = None,
     ):
         ''' Plot voltage evolution of neurons '''
-        times = self.sim_out["t"]
-        v_m   = self.sim_out['v']
-        idx   = last_seconds(times, plot_time)
+
+        styles = self._get_neuron_styles()
+        idx    = self._get_inds_last_seconds(plot_time, self.sim_out["t"])
+        times  = self.sim_out["t"][idx]
+        v_m    = self.sim_out['v'][:, idx] * 1000.0
+
+        # Get indices for the last seconds
 
         fig, axes = plt.subplots(4, 1, figsize=(8, 6), sharex=True)
-        for neuron, ax in enumerate(axes):
-            ax.plot(times[idx], v_m[neuron, idx])
-            ax.set_ylabel(f"N{neuron}\n(mV)")
+        for i, ax in enumerate(axes):
+            style = styles[i]
+            ax.plot(
+                times,
+                v_m[i],
+                color     = style["color"],
+                label     = style["label"],
+                linestyle = '-',
+            )
+            ax.set_ylabel("v (mV)")
+            ax.legend(loc='upper right')
 
         axes[-1].set_xlabel("Time (s)")
         axes[0].set_title("Membrane potentials")
@@ -760,30 +778,36 @@ class SpikingCPG():
     ):
         ''' Phase plane evolution of one neuron '''
 
-        idx    = last_seconds(self.sim_out["t"], plot_time)
+        idx    = self._get_inds_last_seconds(plot_time, self.sim_out["t"])
         v      = self.sim_out["v"][neuron, idx]
         w      = self.sim_out["w"][neuron, idx]
         I_syn  = self.sim_out["I_syn"][neuron, idx]
         params = self.sim_out["params"]
 
-        v_min = min( v.min() - 5.0, -90.0)
-        v_max = (params["V_rheo"] / b2.mV) + 5.0
+        v_tol = +5.0  * 1e-3
+        v_low = -90.0 * 1e-3
+        v_min = min( v.min() - v_tol, v_low )
+        v_max = float( params["V_rheo"] ) + v_tol
+
+        I_syn_0 = 0.0
+        I_syn_1 = float( np.mean(I_syn) )
 
         v_grid     = np.linspace(v_min, v_max, 400)
-        v_null_0   = self._v_nullcline(v_grid, 0.0, params)
-        v_null_syn = self._v_nullcline(v_grid, float(np.mean(I_syn)), params)
-        w_null     = self._w_nullcline(v_grid, params)
+        v_null_0   = self._get_v_nullcline(v_grid, I_syn_0)
+        v_null_syn = self._get_v_nullcline(v_grid, I_syn_1)
+        w_null     = self._get_w_nullcline(v_grid)
 
         fig, ax = plt.subplots(figsize=(5, 5))
-        ax.plot(v, w, lw=0.7, l="traj")
-        ax.plot(v_grid, v_null_0, lw=1.5, l="v-null 0")
-        ax.plot(v_grid, v_null_syn, linestyle="--", lw=1.5, l="v-null <Isyn>")
-        ax.plot(v_grid, w_null, lw=1.5, l="w-null")
+        ax.plot(v, w, lw=0.7)
+        ax.plot(v_grid, v_null_0, lw=1.5, label="v-null 0")
+        ax.plot(v_grid, v_null_syn, linestyle="--", lw=1.5, label="v-null <Isyn>")
+        ax.plot(v_grid, w_null, lw=1.5, label="w-null")
 
         ax.set_xlabel("Membrane potential v (mV)")
         ax.set_ylabel("Adaptation current w (pA)")
         ax.set_title(f"Phase plane: N{neuron}")
-        legend_outside()
+        ax.legend(loc='upper right')
+        fig.tight_layout()
         return fig, ax
 
     def plots(
@@ -816,7 +840,7 @@ def run_test():
     cpg_sim = SpikingCPG(
         t_scale1 = t_scale1,
         t_scale2 = t_scale2,
-        record   = False,
+        record   = True,
         callback = True,
     )
     cpg_sim.run(duration)
